@@ -68,6 +68,22 @@ reinforcement:
   path_dep_seeds: 10
   path_dep_steps: 800
 
+decoupling:
+  n_steps: 1500
+  n_seeds: 8
+  regime: 3
+  modes:
+    - {mode: "none", label: "baseline"}
+    - {mode: "lifetime_cap", lifetime_cap: 50, label: "cap_50"}
+    - {mode: "lifetime_cap", lifetime_cap: 150, label: "cap_150"}
+    - {mode: "random_override", random_override_prob: 0.05, label: "override_5%"}
+    - {mode: "random_override", random_override_prob: 0.15, label: "override_15%"}
+    - {mode: "throughput_blind", throughput_mix: 0.0, label: "blind"}
+    - {mode: "throughput_blind", throughput_mix: 0.5, label: "half_blind"}
+    - {mode: "anti_coupled", anti_coupling_strength: 1.0, label: "anti_coupled"}
+  path_dep_seeds: 10
+  path_dep_steps: 800
+
 output_dir: output
 plots_dir: plots
 evo_output_dir: evo_output

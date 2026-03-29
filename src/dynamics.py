@@ -131,6 +131,136 @@ def update_states(grid, cell_throughput, params, regime):
         grid.age[mutated] = 0
 
 
+# ── Decoupled persistence (causal intervention experiment) ────────
+
+def update_states_decoupled(grid, cell_throughput, params, regime, decouple_cfg):
+    """
+    State update with configurable throughput-persistence decoupling.
+
+    This is identical to update_states() except that the high_tp mask —
+    which determines which cells survive — is modified by one of several
+    interventions that break or weaken the throughput → persistence link.
+
+    Modes:
+      "none"             — baseline, no intervention
+      "lifetime_cap"     — cells die after max_age steps regardless of throughput
+      "random_override"  — randomly kill high-throughput cells with prob p
+      "throughput_blind"  — persistence ignores throughput entirely; survival
+                           is based on a neutral score (uniform random)
+      "anti_coupled"     — invert: high throughput REDUCES persistence
+    """
+    H, W = grid.height, grid.width
+    rng = grid.rng
+    mode = decouple_cfg.get("mode", "none")
+
+    if regime == 1:
+        r = rng.random((H, W))
+        grid.states[:] = EMPTY
+        grid.states[r < params["active_fraction"] + params["passive_fraction"]] = PASSIVE
+        grid.states[r < params["active_fraction"]] = ACTIVE
+        grid.throughput[:] = 0.0
+        grid.age[:] = 0
+        return
+
+    # ── Standard throughput EMA update ──
+    decay = params["throughput_decay"]
+    grid.throughput = decay * grid.throughput + (1.0 - decay) * cell_throughput
+    grid.age += 1
+
+    threshold = params["persistence_threshold"]
+
+    # ── Compute high_tp with intervention ──
+    if mode == "none":
+        # Baseline: throughput determines persistence
+        high_tp = grid.throughput > threshold
+
+    elif mode == "lifetime_cap":
+        # Cells die after max_age steps regardless of throughput
+        max_age = decouple_cfg.get("lifetime_cap", 100)
+        high_tp = (grid.throughput > threshold) & (grid.age < max_age)
+
+    elif mode == "random_override":
+        # Start with normal throughput-based persistence, then randomly
+        # kill a fraction of surviving cells
+        high_tp = grid.throughput > threshold
+        override_prob = decouple_cfg.get("random_override_prob", 0.05)
+        overridden = high_tp & (rng.random((H, W)) < override_prob)
+        high_tp = high_tp & ~overridden
+
+    elif mode == "throughput_blind":
+        # Persistence ignores throughput entirely.
+        # Each cell gets a random persistence score; fraction surviving
+        # is matched to the baseline rate so total cell counts are comparable.
+        # The "mix" parameter interpolates: 0 = fully blind, 1 = fully coupled
+        mix = decouple_cfg.get("throughput_mix", 0.0)
+        # Baseline survival fraction (approximate)
+        baseline_frac = float((grid.throughput > threshold).sum()) / max(H * W, 1)
+        baseline_frac = max(0.05, min(baseline_frac, 0.95))
+        random_score = rng.random((H, W))
+        random_survive = random_score < baseline_frac
+        coupled_survive = grid.throughput > threshold
+        # Mix: with probability `mix` use coupled, else use random
+        use_coupled = rng.random((H, W)) < mix
+        high_tp = np.where(use_coupled, coupled_survive, random_survive)
+
+    elif mode == "anti_coupled":
+        # Invert: high throughput REDUCES persistence.
+        # Cells with throughput BELOW threshold survive; those above face decay.
+        strength = decouple_cfg.get("anti_coupling_strength", 1.0)
+        if strength >= 1.0:
+            # Full inversion
+            high_tp = grid.throughput < threshold
+        else:
+            # Partial: mix normal and inverted
+            normal = grid.throughput > threshold
+            inverted = grid.throughput < threshold
+            use_inverted = rng.random((H, W)) < strength
+            high_tp = np.where(use_inverted, inverted, normal)
+
+    else:
+        raise ValueError(f"Unknown decouple mode: {mode}")
+
+    # ── Standard decay/replication/creation (unchanged) ──
+    can_decay = (grid.states > EMPTY) & ~high_tp
+    decay_prob = 1.0 - params["persistence_strength"]
+    decayed = can_decay & (rng.random((H, W)) < decay_prob)
+    grid.states[decayed] = EMPTY
+    grid.age[decayed] = 0
+    grid.throughput[decayed] = 0.0
+
+    if regime == 3:
+        repl_prob = params["replication_prob"]
+        can_repl = high_tp & (grid.states >= ACTIVE)
+        repl_cells = can_repl & (rng.random((H, W)) < repl_prob)
+
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        ys, xs = np.where(repl_cells)
+        for y, x in zip(ys, xs):
+            dy, dx = directions[rng.integers(4)]
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W and grid.states[ny, nx] == EMPTY:
+                grid.states[ny, nx] = REPLICATING
+                grid.age[ny, nx] = 0
+
+    create_rate = params["spontaneous_create_rate"]
+    empty = grid.states == EMPTY
+    created = empty & (rng.random((H, W)) < create_rate)
+    n_created = int(created.sum())
+    if n_created > 0:
+        grid.states[created] = rng.choice(
+            np.array([PASSIVE, ACTIVE], dtype=np.int8), size=n_created
+        )
+        grid.age[created] = 0
+
+    mut_rate = params["mutation_rate"]
+    mutated = rng.random((H, W)) < mut_rate
+    n_mut = int(mutated.sum())
+    if n_mut > 0:
+        max_state = 4 if regime == 3 else 3
+        grid.states[mutated] = rng.integers(0, max_state, size=n_mut).astype(np.int8)
+        grid.age[mutated] = 0
+
+
 # ── Trait-aware functions (evolution experiment) ──────────────────
 
 def _build_row_targets(grid, r, K):
