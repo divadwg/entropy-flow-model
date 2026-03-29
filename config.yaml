@@ -84,6 +84,12 @@ decoupling:
   path_dep_seeds: 10
   path_dep_steps: 800
 
+lambda:
+  n_steps: 1500
+  n_seeds: 8
+  output_dir: lambda_output
+  plots_dir: lambda_plots
+
 output_dir: output
 plots_dir: plots
 evo_output_dir: evo_output

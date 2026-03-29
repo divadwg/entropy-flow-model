@@ -6,7 +6,7 @@ A simulation framework that discovers how structured energy-channeling patterns 
 
 **Selection-like structure arises from a throughput–persistence feedback loop:** cells that channel energy well persist longer, and because they persist they continue to channel energy. This is not entropy maximization, not statistical complexity maximization, and not an implementation artefact. It is a minimal selection law operating through physics alone.
 
-The evidence comes from five layers of experiments, culminating in a causal intervention that deliberately breaks the feedback loop and shows structured regimes collapse.
+The evidence comes from six layers of experiments, culminating in a causal intervention that deliberately breaks the feedback loop and shows structured regimes collapse, and a dimensionless control parameter (the flow-persistence number) that predicts regime membership better than entropy production or statistical complexity.
 
 ## Model
 
@@ -37,7 +37,7 @@ This conserves total energy while increasing mode entropy. A transform cost crea
 energy_in = energy_out + energy_lost  (verified per step)
 ```
 
-## Five Layers of Experiments
+## Six Layers of Experiments
 
 ### Layer 1: Base Model (`run_all.py`)
 Compares three regimes — memoryless, persistent, and persistent+branching — across parameter sweeps. Establishes that persistence and replication create stable channel structures with higher cumulative entropy.
@@ -83,6 +83,33 @@ The decisive experiment. Systematically breaks the throughput → persistence fe
 
 **Path dependence tracks coupling:** anti-coupled trajectories converge (Hamming 0.075); baseline trajectories diverge (0.657). The coupling creates contingent histories.
 
+### Layer 6: Flow-Persistence Number (`run_lambda.py`)
+Operationalises the throughput–persistence feedback as a dimensionless control parameter and tests whether it predicts the structured regime better than entropy production or statistical complexity.
+
+Three candidates are measured empirically from the simulations:
+
+| Candidate | Definition | What it measures |
+|-----------|-----------|-----------------|
+| Lambda_A | log10(1+survived) − log10(1+disrupted) | Net persistence vs turnover (log-scale) |
+| Lambda_B | (mean_tp_survived − mean_tp_disrupted) / mean_tp_all | Throughput selection gradient |
+| Lambda_C | std(age) / mean(age) | Persistence concentration (age CV) |
+
+Key results (Spearman rank correlation with persistence):
+
+| Predictor | rho | p |
+|-----------|-----|---|
+| **Lambda_A** | **0.925** | **<0.0001** |
+| **Lambda_B** | **0.934** | **<0.0001** |
+| EP | 0.687 | 0.007 |
+| Complexity | −0.295 | 0.306 |
+
+Lambda_B separates the three regime classes:
+- **Collapse** (memoryless, anti-coupled): Lambda_B ≈ 0.00
+- **Structured** (baseline, decoupled variants): Lambda_B ≈ 0.01–0.38
+- **Lock-in** (no noise): Lambda_B = 1.00
+
+Anti-coupling drives Lambda_B to near zero (0.005), confirming the throughput–persistence coupling is the operative mechanism. Lambda_C distinguishes lock-in (CV ≈ 0.01) from structured (CV ≈ 1.0) from collapse (CV ≈ 0.0).
+
 ## Running
 
 ```bash
@@ -105,6 +132,9 @@ python run_reinforcement.py
 
 # Layer 5b: Decoupling experiment (~2 min)
 python run_decoupling.py
+
+# Layer 6: Flow-persistence number (~2 min)
+python run_lambda.py
 ```
 
 ## Outputs
@@ -134,8 +164,12 @@ python run_decoupling.py
 - `decouple_output/` — sweep results, path dependence, causal report
 - `decouple_plots/` — time series, structure panel, complexity/entropy panel, path dependence, structure ranking (5 plots)
 
+### Layer 6: Flow-Persistence Number
+- `lambda_output/` — sweep results, summary table, report
+- `lambda_plots/` — Lambda vs metrics, Lambda vs EP/complexity, regime phase diagram, time series (4 plots)
+
 ### Combined
-- `all_plots.pdf` — all 28 base+evolution+suite plots in one PDF
+- `all_plots.pdf` — all plots from all layers in one PDF
 
 ## The Argument in Summary
 
@@ -144,6 +178,7 @@ python run_decoupling.py
 3. The system occupies an intermediate complexity regime, not maximizing entropy or complexity (Layer 4).
 4. The throughput EMA already functions as local memory of success — explicit reinforcement is redundant (Layer 5a).
 5. **Breaking the throughput–persistence coupling destroys structured regimes** (Layer 5b).
+6. A dimensionless flow-persistence number predicts regime membership (Spearman rho > 0.92) better than entropy production (0.69) or statistical complexity (−0.30) (Layer 6).
 
 The selection law is:
 
