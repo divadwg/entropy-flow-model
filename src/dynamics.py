@@ -9,6 +9,7 @@ from .grid import (
     EMPTY, PASSIVE, ACTIVE, REPLICATING,
     TRAIT_ALPHA, TRAIT_SPLIT, TRAIT_THRESHOLD, TRAIT_BIAS,
     N_TRAITS, TRAIT_BOUNDS, TRAIT_DEFAULTS,
+    extract_motifs,
 )
 
 
@@ -353,3 +354,106 @@ def update_states_evolving(grid, cell_throughput, params, evolving_traits=None):
     if n_mut > 0:
         grid.states[mutated] = rng.integers(0, 4, size=n_mut).astype(np.int8)
         grid.age[mutated] = 0
+
+
+# ── Reinforced state update ──────────────────────────────────────
+
+def update_states_reinforced(grid, cell_throughput, params, regime, reinf_map):
+    """
+    State update with local pattern reinforcement.
+
+    Like update_states() for regimes 2-3, but with an additional mechanism:
+    before deciding whether a cell decays, the reinforcement map is consulted.
+    Cells whose local motif (cross-neighborhood of states) has a history of
+    successful persistence get a small survival boost.
+
+    After the update, motifs that survived are reinforced, and all scores decay.
+
+    The reinforcement bias is:
+        effective_persistence = persistence_strength + boost
+        where boost = epsilon * score / (1 + score)  ∈ [0, epsilon)
+
+    This keeps the bias bounded and prevents runaway lock-in.
+    """
+    H, W = grid.height, grid.width
+    rng = grid.rng
+
+    if regime == 1:
+        # Memoryless: no persistence, no reinforcement
+        r = rng.random((H, W))
+        grid.states[:] = EMPTY
+        grid.states[r < params["active_fraction"] + params["passive_fraction"]] = PASSIVE
+        grid.states[r < params["active_fraction"]] = ACTIVE
+        grid.throughput[:] = 0.0
+        grid.age[:] = 0
+        reinf_map.decay()
+        return
+
+    # Record pre-update state for reinforcement
+    pre_states = grid.states.copy()
+    motif_ids = extract_motifs(pre_states)
+
+    # Throughput EMA
+    decay = params["throughput_decay"]
+    grid.throughput = decay * grid.throughput + (1.0 - decay) * cell_throughput
+    grid.age += 1
+
+    high_tp = grid.throughput > params["persistence_threshold"]
+
+    # Compute reinforcement-boosted persistence
+    # Base persistence_strength ∈ [0, 1]; boost ∈ [0, epsilon)
+    base_persist = params["persistence_strength"]
+    boost = reinf_map.get_boost(motif_ids)  # (H, W)
+    effective_persist = np.clip(base_persist + boost, 0.0, 1.0)
+
+    # Decay: cells with low throughput may revert to empty
+    can_decay = (grid.states > EMPTY) & ~high_tp
+    decay_prob = 1.0 - effective_persist  # per-cell, reinforcement-adjusted
+    decayed = can_decay & (rng.random((H, W)) < decay_prob)
+    grid.states[decayed] = EMPTY
+    grid.age[decayed] = 0
+    grid.throughput[decayed] = 0.0
+
+    # Replication (regime 3) — reinforcement also biases replication probability
+    if regime == 3:
+        repl_prob = params["replication_prob"]
+        can_repl = high_tp & (grid.states >= ACTIVE)
+
+        # Cells with reinforced motifs replicate slightly more often
+        repl_boost = reinf_map.get_boost(motif_ids)  # [0, epsilon)
+        effective_repl = np.clip(repl_prob + repl_boost * 0.5, 0.0, 1.0)
+        repl_cells = can_repl & (rng.random((H, W)) < effective_repl)
+
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        ys, xs = np.where(repl_cells)
+        for y, x in zip(ys, xs):
+            dy, dx = directions[rng.integers(4)]
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W and grid.states[ny, nx] == EMPTY:
+                grid.states[ny, nx] = REPLICATING
+                grid.age[ny, nx] = 0
+
+    # Spontaneous creation
+    create_rate = params["spontaneous_create_rate"]
+    empty = grid.states == EMPTY
+    created = empty & (rng.random((H, W)) < create_rate)
+    n_created = int(created.sum())
+    if n_created > 0:
+        grid.states[created] = rng.choice(
+            np.array([PASSIVE, ACTIVE], dtype=np.int8), size=n_created
+        )
+        grid.age[created] = 0
+
+    # State mutation
+    mut_rate = params["mutation_rate"]
+    mutated = rng.random((H, W)) < mut_rate
+    n_mut = int(mutated.sum())
+    if n_mut > 0:
+        max_state = 4 if regime == 3 else 3
+        grid.states[mutated] = rng.integers(0, max_state, size=n_mut).astype(np.int8)
+        grid.age[mutated] = 0
+
+    # Reinforce motifs that survived: center cell was non-empty before AND after
+    survived = (pre_states > EMPTY) & (grid.states > EMPTY)
+    reinf_map.reinforce(motif_ids, survived)
+    reinf_map.decay()

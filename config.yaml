@@ -57,6 +57,17 @@ suite:
   longrun_seeds: 3
   longrun_steps: 8000
 
+reinforcement:
+  n_steps: 1500
+  n_seeds: 8
+  regime: 3
+  persistence_strength: 0.4
+  epsilon_sweep: [0.0, 0.05, 0.1, 0.2, 0.4]
+  decay_rate: 0.995
+  max_score: 10.0
+  path_dep_seeds: 10
+  path_dep_steps: 800
+
 output_dir: output
 plots_dir: plots
 evo_output_dir: evo_output

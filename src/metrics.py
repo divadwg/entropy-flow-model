@@ -103,6 +103,50 @@ def complexity_timeseries(output_modes_over_time):
     return np.array([statistical_complexity(row) for row in output_modes_over_time])
 
 
+def motif_recurrence(motif_history, window=50):
+    """Measure motif recurrence: fraction of current motifs seen in recent history.
+
+    motif_history: list of sets of motif IDs observed at each past step.
+    Returns fraction of motifs in the latest step that appeared in the
+    preceding `window` steps.
+    """
+    if len(motif_history) < 2:
+        return 0.0
+    current = motif_history[-1]
+    if not current:
+        return 0.0
+    lookback = set()
+    for s in motif_history[max(0, len(motif_history) - 1 - window):-1]:
+        lookback |= s
+    return len(current & lookback) / len(current)
+
+
+def motif_propagation(motif_ids, states):
+    """Measure motif propagation: fraction of non-empty cells whose motif
+    matches at least one cardinal neighbor's motif.
+
+    This captures spatial copying / spreading of local patterns.
+    """
+    H, W = states.shape
+    non_empty = states > 0
+    if not non_empty.any():
+        return 0.0
+    matches = 0
+    total = 0
+    for y in range(H):
+        for x in range(W):
+            if states[y, x] == 0:
+                continue
+            total += 1
+            mid = motif_ids[y, x]
+            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < H and 0 <= nx < W and motif_ids[ny, nx] == mid:
+                    matches += 1
+                    break
+    return matches / max(total, 1)
+
+
 def collect_step_metrics(output, cell_throughput, grid, balance, step):
     """Gather all metrics for one timestep into a flat dict."""
     return {

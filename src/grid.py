@@ -123,3 +123,83 @@ class Grid:
             return {}
         unique, counts = np.unique(ids, return_counts=True)
         return dict(zip(unique.tolist(), counts.tolist()))
+
+
+# ── Local pattern reinforcement ──────────────────────────────────
+
+N_STATES = 4
+MOTIF_SIZE = N_STATES ** 5  # cross-neighborhood: center + 4 cardinal neighbors
+
+
+def encode_motif(center, up, down, left, right):
+    """Encode a cross-neighborhood of cell states as an integer in [0, 1024)."""
+    return int(center + N_STATES * (up + N_STATES * (down + N_STATES * (left + N_STATES * right))))
+
+
+def extract_motifs(states):
+    """Extract the cross-neighborhood motif ID for every cell.
+
+    Returns (H, W) int array of motif IDs. Boundary cells use EMPTY for
+    out-of-bounds neighbors.
+    """
+    H, W = states.shape
+    motifs = np.zeros((H, W), dtype=np.int32)
+    for y in range(H):
+        for x in range(W):
+            c = int(states[y, x])
+            u = int(states[y - 1, x]) if y > 0 else EMPTY
+            d = int(states[y + 1, x]) if y < H - 1 else EMPTY
+            l = int(states[y, x - 1]) if x > 0 else EMPTY
+            r = int(states[y, x + 1]) if x < W - 1 else EMPTY
+            motifs[y, x] = encode_motif(c, u, d, l, r)
+    return motifs
+
+
+class ReinforcementMap:
+    """Tracks reinforcement scores for local state-neighborhood motifs.
+
+    After each step, motifs whose center cell persisted get a small increment.
+    All scores decay each step. During state updates, the reinforcement score
+    for a cell's current motif slightly biases its survival probability:
+
+        survival_boost = epsilon * score / (1 + score)
+
+    This is bounded in [0, epsilon), preventing runaway feedback.
+    """
+
+    def __init__(self, epsilon=0.1, decay_rate=0.99, max_score=10.0):
+        self.scores = np.zeros(MOTIF_SIZE, dtype=np.float64)
+        self.epsilon = epsilon        # strength of reinforcement bias
+        self.decay_rate = decay_rate  # per-step multiplicative decay
+        self.max_score = max_score    # clip to prevent overflow
+
+    def get_boost(self, motif_ids):
+        """Return survival boost array for given motif IDs.
+
+        boost = epsilon * score / (1 + score), bounded in [0, epsilon).
+        """
+        scores = self.scores[motif_ids]
+        return self.epsilon * scores / (1.0 + scores)
+
+    def reinforce(self, motif_ids, mask):
+        """Increment scores for motifs at positions where mask is True."""
+        ids = motif_ids[mask]
+        if len(ids) == 0:
+            return
+        # Accumulate counts per motif
+        np.add.at(self.scores, ids, 1.0)
+        np.clip(self.scores, 0.0, self.max_score, out=self.scores)
+
+    def decay(self):
+        """Apply multiplicative decay to all scores."""
+        self.scores *= self.decay_rate
+
+    def motif_stats(self):
+        """Summary statistics of the reinforcement map."""
+        active = self.scores > 0.01
+        return {
+            "n_reinforced_motifs": int(active.sum()),
+            "mean_reinf_score": float(self.scores[active].mean()) if active.any() else 0.0,
+            "max_reinf_score": float(self.scores.max()),
+            "total_reinf_mass": float(self.scores.sum()),
+        }
