@@ -59,6 +59,50 @@ def kl_from_uniform(output):
     return float(np.sum(p_pos * np.log2(p_pos / q)))
 
 
+def shannon_entropy_nats(p, eps=1e-12):
+    """Shannon entropy in nats (natural log) of a distribution."""
+    p = np.asarray(p, dtype=float)
+    total = p.sum()
+    if total <= 0:
+        return 0.0
+    p = p / total
+    p = np.clip(p, eps, 1.0)
+    return float(-np.sum(p * np.log(p)))
+
+
+def normalized_entropy(p, eps=1e-12):
+    """Shannon entropy normalized to [0, 1] by dividing by log(K)."""
+    k = len(p)
+    if k <= 1:
+        return 0.0
+    return shannon_entropy_nats(p, eps) / np.log(k)
+
+
+def disequilibrium(p):
+    """Euclidean distance squared from uniform distribution."""
+    p = np.asarray(p, dtype=float)
+    total = p.sum()
+    if total <= 0:
+        return 0.0
+    p = p / total
+    k = len(p)
+    uniform = np.full(k, 1.0 / k)
+    return float(np.sum((p - uniform) ** 2))
+
+
+def statistical_complexity(p):
+    """Statistical complexity: normalized_entropy * disequilibrium.
+
+    Peaks at intermediate structure — neither fully ordered nor fully random.
+    """
+    return normalized_entropy(p) * disequilibrium(p)
+
+
+def complexity_timeseries(output_modes_over_time):
+    """Compute statistical complexity for each row of a (T, K) array."""
+    return np.array([statistical_complexity(row) for row in output_modes_over_time])
+
+
 def collect_step_metrics(output, cell_throughput, grid, balance, step):
     """Gather all metrics for one timestep into a flat dict."""
     return {
