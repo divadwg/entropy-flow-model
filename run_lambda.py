@@ -326,12 +326,13 @@ def plot_lambda_vs_metrics(summary_df, save_path):
 
 
 def plot_lambda_vs_ep_complexity(summary_df, save_path):
-    """Compare Lambda vs EP and complexity as regime predictors."""
-    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    """Compare Lambda vs mixing entropy, dissipation rate, and complexity."""
+    fig, axes = plt.subplots(2, 4, figsize=(20, 10))
 
     predictors = [
-        ("lambda_B", r"$\Lambda_B$ (survivor tp advantage)"),
-        ("ss_entropy_prod", "Entropy Production"),
+        ("lambda_B", r"$\Lambda_B$ (selection gradient)"),
+        ("ss_entropy_prod", "Mixing Entropy"),
+        ("ss_dissipation_rate", "Dissipation Rate"),
         ("ss_complexity", "Statistical Complexity"),
     ]
     outcomes = [
@@ -352,16 +353,16 @@ def plot_lambda_vs_ep_complexity(summary_df, save_path):
 
             valid = ~(np.isnan(x) | np.isnan(y))
             if valid.sum() >= 3:
-                r, p = sp_stats.pearsonr(x[valid], y[valid])
-                ax.set_title(f"{xlabel}\nr={r:.3f}, p={p:.3f}", fontsize=9)
+                rho, _ = sp_stats.spearmanr(x[valid], y[valid])
+                ax.set_title(f"{xlabel}\nSpearman rho={rho:.3f}", fontsize=9)
             else:
                 ax.set_title(xlabel, fontsize=9)
 
             ax.set_ylabel(ylabel, fontsize=9)
             ax.grid(True, alpha=0.3)
 
-    plt.suptitle(r"Regime Prediction: $\Lambda_B$ vs EP vs Complexity",
-                 fontsize=14, fontweight="bold")
+    plt.suptitle(r"Regime Prediction: $\Lambda_B$ vs Mixing Entropy vs Dissipation vs Complexity",
+                 fontsize=13, fontweight="bold")
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(save_path, dpi=200)
     plt.close()
@@ -510,9 +511,9 @@ def generate_report(summary_df, regime_classes, config):
     lines.append("## Summary Table\n\n")
     cols = ["condition", "lambda_A", "lambda_B", "lambda_C",
             "ss_mean_age", "ss_propagation", "ss_entropy_prod",
-            "ss_complexity", "ss_active_area"]
-    header = "| Condition | Lambda_A | Lambda_B | Lambda_C | Persistence | Propagation | EP | Complexity | Active |"
-    sep = "|-----------|----------|----------|----------|-------------|-------------|------|-----------|--------|"
+            "ss_dissipation_rate", "ss_complexity", "ss_active_area"]
+    header = "| Condition | Lambda_A | Lambda_B | Lambda_C | Persistence | Propagation | Mixing Ent. | Dissip. Rate | Complexity | Active |"
+    sep = "|-----------|----------|----------|----------|-------------|-------------|-------------|-------------|-----------|--------|"
     lines.append(header + "\n")
     lines.append(sep + "\n")
     for _, row in summary_df.iterrows():
@@ -524,6 +525,7 @@ def generate_report(summary_df, regime_classes, config):
             f"| {row['ss_mean_age']:.1f} "
             f"| {row['ss_propagation']:.3f} "
             f"| {row['ss_entropy_prod']:.3f} "
+            f"| {row['ss_dissipation_rate']:.3f} "
             f"| {row['ss_complexity']:.5f} "
             f"| {row['ss_active_area']:.0f} |\n"
         )
@@ -532,7 +534,8 @@ def generate_report(summary_df, regime_classes, config):
     lines.append("\n## Correlation Analysis\n\n")
     predictors = [("lambda_A", "Lambda_A"), ("lambda_B", "Lambda_B"),
                   ("lambda_C", "Lambda_C"),
-                  ("ss_entropy_prod", "EP"), ("ss_complexity", "Complexity"),
+                  ("ss_entropy_prod", "Mixing entropy"), ("ss_complexity", "Complexity"),
+                  ("ss_dissipation_rate", "Dissipation rate"),
                   ("ss_active_area", "Active cells")]
     outcomes = [("ss_mean_age", "Persistence"), ("ss_propagation", "Propagation")]
 
@@ -706,8 +709,9 @@ def generate_report(summary_df, regime_classes, config):
             r, _ = sp_stats.spearmanr(x[valid], y[valid])
             lambda_rs[pred_name] = abs(r)
 
-    ep_r = lambda_rs.get("EP", 0)
+    ep_r = lambda_rs.get("Mixing entropy", 0)
     cx_r = lambda_rs.get("Complexity", 0)
+    dr_r = lambda_rs.get("Dissipation rate", 0)
     best_lambda_name = None
     best_lambda_r = 0
     for name in ["Lambda_A", "Lambda_B", "Lambda_C"]:
@@ -719,31 +723,32 @@ def generate_report(summary_df, regime_classes, config):
     if best_lambda_r > ep_r and best_lambda_r > cx_r and best_lambda_r > 0.3:
         lines.append(
             f"The flow-persistence number {best_lambda_name} predicts the structured "
-            f"regime better than entropy production "
-            f"(Spearman |rho|={best_lambda_r:.3f} vs {ep_r:.3f}) or statistical complexity "
-            f"(|rho|={best_lambda_r:.3f} vs {cx_r:.3f}).\n\n"
+            f"regime better than mixing entropy "
+            f"(Spearman |rho|={best_lambda_r:.3f} vs {ep_r:.3f}), "
+            f"dissipation rate (|rho|={dr_r:.3f}), "
+            f"or statistical complexity (|rho|={cx_r:.3f}).\n\n"
             "This supports the claim:\n\n"
             "> The structured regime is governed by a flow-persistence number comparing "
             "throughput-mediated repair to disruption. This quantity predicts the "
-            "existence of the selection-like regime better than entropy production "
-            "or statistical complexity.\n"
+            "existence of the selection-like regime better than any thermodynamic "
+            "observable.\n"
         )
     elif best_lambda_r > 0.3:
         lines.append(
             f"{best_lambda_name} correlates with regime outcomes "
             f"(Spearman |rho|={best_lambda_r:.3f}) "
-            f"but does not clearly dominate EP (|rho|={ep_r:.3f}) or complexity "
-            f"(|rho|={cx_r:.3f}). The flow-persistence number captures regime structure "
-            "but additional information may be needed for full prediction.\n"
+            f"but does not clearly dominate mixing entropy (|rho|={ep_r:.3f}), "
+            f"dissipation rate (|rho|={dr_r:.3f}), "
+            f"or complexity (|rho|={cx_r:.3f}). The flow-persistence number captures "
+            "regime structure but additional information may be needed.\n"
         )
     else:
         lines.append(
             f"The best Lambda candidate ({best_lambda_name}) shows only modest "
             f"correlation with regime outcomes (Spearman |rho|={best_lambda_r:.3f}). "
-            f"EP has |rho|={ep_r:.3f}, complexity has |rho|={cx_r:.3f}. "
-            "The flow-persistence number definitions may need refinement, or "
-            "the regime may be governed by multiple factors that no single "
-            "scalar captures.\n"
+            f"Mixing entropy has |rho|={ep_r:.3f}, dissipation rate |rho|={dr_r:.3f}, "
+            f"complexity has |rho|={cx_r:.3f}. "
+            "The flow-persistence number definitions may need refinement.\n"
         )
 
     return "".join(lines)
@@ -842,6 +847,10 @@ def main():
     summary_rows = []
     for cond in conditions:
         sub = results[(results["condition"] == cond) & (results["step"] >= ss_start)]
+        # Dissipation rate = fraction of input energy lost (thermodynamic EP proxy)
+        e_in = sub["energy_in"].values
+        e_lost = sub["energy_lost"].values
+        dissipation_rate = float(np.mean(e_lost / np.maximum(e_in, 1e-12)))
         summary_rows.append({
             "condition": cond,
             "lambda_A": sub["lambda_A"].mean(),
@@ -853,6 +862,7 @@ def main():
             "ss_complexity": sub["stat_complexity"].mean(),
             "ss_active_area": sub["active_area"].mean(),
             "ss_throughput": sub["throughput_mean"].mean(),
+            "ss_dissipation_rate": dissipation_rate,
             "survival_rate": sub["survival_rate"].mean(),
             "turnover_rate": sub["turnover_rate"].mean(),
         })
