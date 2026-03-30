@@ -272,6 +272,19 @@ def run_lambda_baseline(config, seed, regime, n_steps=None):
 
 # ── Plotting ──────────────────────────────────────────────────────
 
+def _add_labels(ax, x, y, labels, fontsize=7):
+    """Add non-overlapping labels to a scatter plot using adjustText."""
+    from adjustText import adjust_text
+    texts = []
+    for i, txt in enumerate(labels):
+        texts.append(ax.text(x[i], y[i], txt, fontsize=fontsize, ha="center",
+                             va="bottom"))
+    adjust_text(texts, x=x, y=y, ax=ax,
+                arrowprops=dict(arrowstyle="-", color="gray", alpha=0.5, lw=0.5),
+                force_text=(0.8, 1.0), force_points=(0.3, 0.3),
+                expand=(1.2, 1.4))
+
+
 def plot_lambda_vs_metrics(summary_df, save_path):
     """Scatter: Lambda candidates vs regime metrics (persistence, propagation)."""
     fig, axes = plt.subplots(2, 3, figsize=(16, 10))
@@ -293,12 +306,8 @@ def plot_lambda_vs_metrics(summary_df, save_path):
 
             ax.scatter(x, y, s=80, c=range(len(x)), cmap="tab10",
                        edgecolor="white", linewidth=0.5, zorder=3)
-            for i, txt in enumerate(labels):
-                ax.annotate(txt, (x[i], y[i]), fontsize=6, ha="center",
-                            va="bottom", xytext=(0, 4),
-                            textcoords="offset points")
+            _add_labels(ax, x, y, labels, fontsize=6)
 
-            # Correlation
             valid = ~(np.isnan(x) | np.isnan(y))
             if valid.sum() >= 3:
                 r, p = sp_stats.pearsonr(x[valid], y[valid])
@@ -320,8 +329,6 @@ def plot_lambda_vs_ep_complexity(summary_df, save_path):
     """Compare Lambda vs EP and complexity as regime predictors."""
     fig, axes = plt.subplots(2, 3, figsize=(16, 10))
 
-    # Row 0: persistence predicted by Lambda_B, EP, complexity
-    # Row 1: propagation predicted by Lambda_B, EP, complexity
     predictors = [
         ("lambda_B", r"$\Lambda_B$ (survivor tp advantage)"),
         ("ss_entropy_prod", "Entropy Production"),
@@ -341,10 +348,7 @@ def plot_lambda_vs_ep_complexity(summary_df, save_path):
 
             ax.scatter(x, y, s=80, c=range(len(x)), cmap="tab10",
                        edgecolor="white", linewidth=0.5, zorder=3)
-            for i, txt in enumerate(labels):
-                ax.annotate(txt, (x[i], y[i]), fontsize=6, ha="center",
-                            va="bottom", xytext=(0, 4),
-                            textcoords="offset points")
+            _add_labels(ax, x, y, labels, fontsize=6)
 
             valid = ~(np.isnan(x) | np.isnan(y))
             if valid.sum() >= 3:
@@ -365,7 +369,9 @@ def plot_lambda_vs_ep_complexity(summary_df, save_path):
 
 def plot_regime_phase(summary_df, save_path):
     """Phase-style plot: Lambda_B vs persistence, colored by regime class."""
-    fig, ax = plt.subplots(figsize=(10, 7))
+    from adjustText import adjust_text
+
+    fig, ax = plt.subplots(figsize=(12, 8))
 
     x = summary_df["lambda_B"].values
     y = summary_df["ss_mean_age"].values
@@ -387,24 +393,29 @@ def plot_regime_phase(summary_df, save_path):
     colors = [color_map[r] for r in regime_class]
 
     ax.scatter(x, y, s=120, c=colors, edgecolor="white", linewidth=1, zorder=3)
+
+    # Non-overlapping labels
+    texts = []
     for i, txt in enumerate(labels):
-        ax.annotate(txt, (x[i], y[i]), fontsize=7, ha="center", va="bottom",
-                    xytext=(0, 6), textcoords="offset points")
+        texts.append(ax.text(x[i], y[i], txt, fontsize=8, ha="center",
+                             va="bottom", style="italic"))
+    adjust_text(texts, x=x, y=y, ax=ax,
+                arrowprops=dict(arrowstyle="-", color="gray", alpha=0.5, lw=0.5),
+                force_text=(1.0, 1.2), force_points=(0.5, 0.5),
+                expand=(1.3, 1.5))
 
     # Legend
     for regime, color in color_map.items():
         ax.scatter([], [], c=color, s=80, label=regime, edgecolor="white")
-    ax.legend(fontsize=10, title="Regime", loc="upper left")
+    ax.legend(fontsize=11, title="Regime", title_fontsize=11, loc="upper left")
 
-    # Threshold lines
-    ax.axvline(x=0.0, color="gray", linestyle="--", alpha=0.4,
-               label=r"$\Lambda_B = 0$ (no coupling)")
+    # Threshold line
+    ax.axvline(x=0.0, color="gray", linestyle="--", alpha=0.4)
 
-    ax.set_xlabel(r"$\Lambda_B$ (survivor tp advantage)",
-                  fontsize=11)
-    ax.set_ylabel("Persistence (mean age)", fontsize=11)
+    ax.set_xlabel(r"$\Lambda_B$ (survivor throughput advantage)", fontsize=12)
+    ax.set_ylabel("Persistence (mean age)", fontsize=12)
     ax.set_title("Regime Phase Diagram: Flow-Persistence Number",
-                 fontsize=13, fontweight="bold")
+                 fontsize=14, fontweight="bold")
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(save_path, dpi=200)
